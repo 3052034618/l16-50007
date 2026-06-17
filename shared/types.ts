@@ -1,8 +1,50 @@
-export type TaskStatus = 'pending_verify' | 'parsing' | 'computing' | 'analyzing' | 'completed' | 'failed' | 'rollback';
+export type TaskStatus = 'pending_verify' | 'parsing' | 'computing' | 'analyzing' | 'completed' | 'failed' | 'rollback' | 'slicing' | 'sliced';
 
 export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
 
 export type UserRole = 'engineer' | 'reviewer' | 'scientist' | 'admin';
+
+export type WarningStatus = 'pending_review' | 'review_approved' | 'review_rejected' | 'resolved';
+
+export interface WarningRecord {
+  id: string;
+  taskId: string;
+  type: 'temperature' | 'cooling_rate';
+  message: string;
+  value: number;
+  threshold: number;
+  status: WarningStatus;
+  reviewedBy: string | null;
+  reviewComment: string | null;
+  reviewedAt: string | null;
+  parameterAdjustment: {
+    laserPowerAdjustment: number;
+    scanSpeedAdjustment: number;
+  } | null;
+  createdAt: string;
+}
+
+export interface SlicingRecord {
+  id: string;
+  taskId: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  gcodeFile: string | null;
+  pushedAt: string | null;
+  createdAt: string;
+}
+
+export interface NotificationRecord {
+  id: string;
+  type: 'warning' | 'approval' | 'quality' | 'system';
+  title: string;
+  message: string;
+  recipientRole: UserRole;
+  recipientUserId: string | null;
+  relatedTaskId: string | null;
+  relatedMaterialId: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
 
 export interface SimulationTask {
   id: string;
@@ -25,6 +67,11 @@ export interface SimulationTask {
   approvalLevel2: ApprovalStatus;
   warningCount: number;
   createdBy: string;
+  slicingStatus: 'pending' | 'processing' | 'completed' | 'failed' | 'not_applicable';
+  gcodeFile: string | null;
+  originalLaserPower: number | null;
+  originalScanSpeed: number | null;
+  restartCount: number;
 }
 
 export interface PowderMaterial {

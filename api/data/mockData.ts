@@ -8,6 +8,9 @@ import type {
   PorosityTrend,
   RecommendedParams,
   TaskStatus,
+  WarningRecord,
+  SlicingRecord,
+  NotificationRecord,
 } from '../../shared/types';
 
 const generateId = (): string => Math.random().toString(36).substring(2, 11);
@@ -143,6 +146,11 @@ const generateTasks = (): SimulationTask[] => {
       approvalLevel2: status === 'completed' && index % 3 === 0 ? (index % 2 === 0 ? 'approved' : 'pending') : 'pending',
       warningCount: Math.floor(Math.random() * 3),
       createdBy: users[0].id,
+      slicingStatus: status === 'completed' && index % 2 === 0 ? 'completed' : status === 'completed' ? 'pending' : 'not_applicable',
+      gcodeFile: status === 'completed' && index % 2 === 0 ? `t${String(index + 1).padStart(3, '0')}_print.gcode` : null,
+      originalLaserPower: null,
+      originalScanSpeed: null,
+      restartCount: 0,
     };
   });
 };
@@ -246,6 +254,10 @@ const generatePorosityTrends = (): PorosityTrend[] => {
 
 const porosityTrends = generatePorosityTrends();
 
+const warningRecords: WarningRecord[] = [];
+const notificationRecords: NotificationRecord[] = [];
+const slicingRecords: SlicingRecord[] = [];
+
 const generateRecommendations = (materialId: string): RecommendedParams[] => {
   const recommendations: RecommendedParams[] = [];
   const basePower = materialId === 'm001' ? 200 : materialId === 'm002' ? 180 : 220;
@@ -283,6 +295,11 @@ export const dataService = {
   getTaskById: (id: string): SimulationTask | undefined => tasks.find((t) => t.id === id),
 
   createTask: (data: Partial<SimulationTask>): SimulationTask => {
+    const material = dataService.getMaterialById(data.materialId || 'm001');
+    if (material?.isSuspended) {
+      throw new Error(`材料「${material.name}」已暂停，无法创建新任务`);
+    }
+
     const newTask: SimulationTask = {
       id: `t${String(tasks.length + 1).padStart(3, '0')}`,
       name: data.name || '新模拟任务',
@@ -304,6 +321,11 @@ export const dataService = {
       approvalLevel2: 'pending',
       warningCount: 0,
       createdBy: data.createdBy || 'u001',
+      slicingStatus: 'not_applicable',
+      gcodeFile: null,
+      originalLaserPower: null,
+      originalScanSpeed: null,
+      restartCount: 0,
     };
     tasks.unshift(newTask);
     return newTask;
@@ -440,6 +462,82 @@ export const dataService = {
       material.updatedAt = new Date().toISOString();
     }
     return material;
+  },
+
+  addWarningRecord: (warning: WarningRecord): void => {
+    warningRecords.push(warning);
+  },
+
+  getWarningRecords: (taskId?: string): WarningRecord[] => {
+    if (taskId) {
+      return warningRecords.filter((w) => w.taskId === taskId);
+    }
+    return warningRecords;
+  },
+
+  getWarningById: (id: string): WarningRecord | undefined => {
+    return warningRecords.find((w) => w.id === id);
+  },
+
+  clearWarningRecords: (taskId: string): void => {
+    for (let i = warningRecords.length - 1; i >= 0; i--) {
+      if (warningRecords[i].taskId === taskId) {
+        warningRecords.splice(i, 1);
+      }
+    }
+  },
+
+  addTemperatureDataPoint: (taskId: string, data: TemperatureData): void => {
+    const existing = temperatureDataCache.get(taskId) || [];
+    existing.push(data);
+    temperatureDataCache.set(taskId, existing);
+  },
+
+  clearTemperatureData: (taskId: string): void => {
+    temperatureDataCache.delete(taskId);
+  },
+
+  addNotificationRecord: (notification: NotificationRecord): void => {
+    notificationRecords.push(notification);
+  },
+
+  getNotificationRecords: (role?: string): NotificationRecord[] => {
+    if (role) {
+      return notificationRecords.filter((n) => n.recipientRole === role);
+    }
+    return notificationRecords;
+  },
+
+  addSlicingRecord: (record: SlicingRecord): void => {
+    slicingRecords.push(record);
+  },
+
+  getSlicingRecords: (taskId?: string): SlicingRecord[] => {
+    if (taskId) {
+      return slicingRecords.filter((s) => s.taskId === taskId);
+    }
+    return slicingRecords;
+  },
+
+  getSlicingRecordByTaskId: (taskId: string): SlicingRecord | undefined => {
+    return slicingRecords.find((s) => s.taskId === taskId);
+  },
+
+  updateTask: (id: string, updates: Partial<SimulationTask>): SimulationTask | undefined => {
+    const task = tasks.find((t) => t.id === id);
+    if (task) {
+      Object.assign(task, updates);
+      task.updatedAt = new Date().toISOString();
+    }
+    return task;
+  },
+
+  markNotificationRead: (id: string): NotificationRecord | undefined => {
+    const notification = notificationRecords.find((n) => n.id === id);
+    if (notification) {
+      notification.isRead = true;
+    }
+    return notification;
   },
 };
 

@@ -8,11 +8,16 @@ import {
   MessageSquare,
   FileText,
   Zap,
+  Printer,
+  AlertTriangle,
+  Eye,
 } from 'lucide-react';
 import StatusBadge from '@/components/StatusBadge';
+import { useNavigate } from 'react-router-dom';
 
 const Approval = () => {
-  const { tasks, fetchTasks, approveTask, rejectTask } = useAppStore();
+  const { tasks, fetchTasks, approveTask, rejectTask, warningRecords, fetchWarningRecords } = useAppStore();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'pending' | 'history'>('pending');
   const [selectedTask, setSelectedTask] = useState<string | null>(null);
   const [comment, setComment] = useState('');
@@ -22,6 +27,12 @@ const Approval = () => {
   useEffect(() => {
     fetchTasks('completed');
   }, [fetchTasks]);
+
+  useEffect(() => {
+    if (selectedTask && activeTab === 'history') {
+      fetchWarningRecords(selectedTask);
+    }
+  }, [selectedTask, activeTab, fetchWarningRecords]);
 
   const pendingTasks = tasks.filter(
     (t) => t.approvalLevel1 === 'pending' || t.approvalLevel2 === 'pending'
@@ -193,6 +204,8 @@ const Approval = () => {
                 <th className="text-left py-4 px-6 text-xs font-medium text-steel-400 uppercase">材料</th>
                 <th className="text-left py-4 px-6 text-xs font-medium text-steel-400 uppercase">一级审批</th>
                 <th className="text-left py-4 px-6 text-xs font-medium text-steel-400 uppercase">二级审批</th>
+                <th className="text-left py-4 px-6 text-xs font-medium text-steel-400 uppercase">切片状态</th>
+                <th className="text-left py-4 px-6 text-xs font-medium text-steel-400 uppercase">操作</th>
                 <th className="text-left py-4 px-6 text-xs font-medium text-steel-400 uppercase">时间</th>
               </tr>
             </thead>
@@ -211,6 +224,52 @@ const Approval = () => {
                     </td>
                     <td className="py-4 px-6">
                       <StatusBadge status={task.approvalLevel2} size="sm" />
+                    </td>
+                    <td className="py-4 px-6">
+                      <span className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full ${
+                        task.slicingStatus === 'completed'
+                          ? 'bg-neon-green-500/20 text-neon-green-400'
+                          : task.slicingStatus === 'processing'
+                          ? 'bg-tech-cyan-500/20 text-tech-cyan-400'
+                          : task.slicingStatus === 'failed'
+                          ? 'bg-red-500/20 text-red-400'
+                          : 'bg-steel-500/20 text-steel-400'
+                      }`}>
+                        {task.slicingStatus === 'completed' ? (
+                          <><Printer className="w-3 h-3" /> 已生成指令</>
+                        ) : task.slicingStatus === 'processing' ? (
+                          <><Clock className="w-3 h-3" /> 处理中</>
+                        ) : task.slicingStatus === 'failed' ? (
+                          <><XCircle className="w-3 h-3" /> 失败</>
+                        ) : task.slicingStatus === 'pending' ? (
+                          <><Clock className="w-3 h-3" /> 待推送</>
+                        ) : (
+                          '不适用'
+                        )}
+                      </span>
+                    </td>
+                    <td className="py-4 px-6">
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => navigate(`/tasks/${task.id}`)}
+                          className="p-1.5 rounded-lg bg-tech-cyan-500/10 text-tech-cyan-400 hover:bg-tech-cyan-500/20 transition-colors"
+                          title="查看详情"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        {task.warningCount > 0 && (
+                          <button
+                            onClick={() => {
+                              setSelectedTask(task.id);
+                              navigate(`/tasks/${task.id}`);
+                            }}
+                            className="p-1.5 rounded-lg bg-molten-orange-500/10 text-molten-orange-400 hover:bg-molten-orange-500/20 transition-colors"
+                            title={`${task.warningCount}条预警记录`}
+                          >
+                            <AlertTriangle className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     <td className="py-4 px-6 text-sm text-steel-400">
                       {new Date(task.updatedAt).toLocaleDateString('zh-CN')}

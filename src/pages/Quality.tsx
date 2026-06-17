@@ -24,13 +24,21 @@ import {
 } from 'recharts';
 
 const Quality = () => {
-  const { materials, porosityTrends, fetchMaterials, fetchPorosityTrends } = useAppStore();
+  const {
+    materials,
+    porosityTrends,
+    fetchMaterials,
+    fetchPorosityTrends,
+    notificationRecords,
+    fetchNotifications,
+  } = useAppStore();
   const [selectedMaterial, setSelectedMaterial] = useState('m001');
   const [showMaterialDropdown, setShowMaterialDropdown] = useState(false);
 
   useEffect(() => {
     fetchMaterials();
-  }, [fetchMaterials]);
+    fetchNotifications('scientist');
+  }, [fetchMaterials, fetchNotifications]);
 
   useEffect(() => {
     fetchPorosityTrends(selectedMaterial);
@@ -40,6 +48,33 @@ const Quality = () => {
 
   const suspendedMaterials = materials.filter((m) => m.isSuspended);
   const warningMaterials = materials.filter((m) => m.porosityDeviationCount > 0 && !m.isSuspended);
+
+  const handleSuspendMaterial = async (materialId: string) => {
+    try {
+      await fetch('/api/quality/suspend', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ materialId }),
+      });
+      fetchMaterials();
+    } catch (err) {
+      console.error('暂停材料失败', err);
+    }
+  };
+
+  const handleResumeMaterial = async (materialId: string) => {
+    try {
+      await fetch('/api/quality/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ materialId }),
+      });
+      fetchMaterials();
+      fetchNotifications('scientist');
+    } catch (err) {
+      console.error('恢复材料失败', err);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -259,11 +294,19 @@ const Quality = () => {
                     />
                   </div>
                   {material.isSuspended ? (
-                    <button className="p-1.5 bg-neon-green-500/10 text-neon-green-400 rounded hover:bg-neon-green-500/20 transition-colors">
+                    <button
+                      onClick={() => handleResumeMaterial(material.id)}
+                      className="p-1.5 bg-neon-green-500/10 text-neon-green-400 rounded hover:bg-neon-green-500/20 transition-colors"
+                      title="恢复材料"
+                    >
                       <Play className="w-3.5 h-3.5" />
                     </button>
                   ) : (
-                    <button className="p-1.5 bg-alert-red-500/10 text-alert-red-400 rounded hover:bg-alert-red-500/20 transition-colors">
+                    <button
+                      onClick={() => handleSuspendMaterial(material.id)}
+                      className="p-1.5 bg-alert-red-500/10 text-alert-red-400 rounded hover:bg-alert-red-500/20 transition-colors"
+                      title="暂停材料"
+                    >
                       <Pause className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -286,77 +329,66 @@ const Quality = () => {
         </div>
 
         <div className="space-y-3">
-          {[
-            {
-              type: 'critical',
-              title: 'CoCrMo 材料已自动暂停',
-              desc: '连续3次孔隙率偏差超20%，系统已自动暂停该材料新任务',
-              time: '2小时前',
-              user: '系统自动',
-            },
-            {
-              type: 'warning',
-              title: '316L不锈钢 孔隙率偏差预警',
-              desc: '该材料已连续2次孔隙率偏差超标，请关注',
-              time: '6小时前',
-              user: '系统通知',
-            },
-            {
-              type: 'info',
-              title: 'Ti-6Al-4V 质量恢复正常',
-              desc: '经工艺调整后，Ti-6Al-4V 孔隙率回归正常范围',
-              time: '1天前',
-              user: '王首席',
-            },
-          ].map((item, i) => (
-            <div
-              key={i}
-              className={`flex items-start gap-4 p-4 rounded-lg border ${
-                item.type === 'critical'
-                  ? 'bg-alert-red-500/5 border-alert-red-500/20'
-                  : item.type === 'warning'
-                  ? 'bg-molten-orange-500/5 border-molten-orange-500/20'
-                  : 'bg-tech-cyan-500/5 border-tech-cyan-500/20'
-              }`}
-            >
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
-                  item.type === 'critical'
-                    ? 'bg-alert-red-500/20'
-                    : item.type === 'warning'
-                    ? 'bg-molten-orange-500/20'
-                    : 'bg-tech-cyan-500/20'
-                }`}
-              >
-                {item.type === 'critical' ? (
-                  <AlertOctagon
-                    className={`w-4 h-4 ${
-                      item.type === 'critical'
-                        ? 'text-alert-red-400'
-                        : item.type === 'warning'
-                        ? 'text-molten-orange-400'
-                        : 'text-tech-cyan-400'
-                    }`}
-                  />
-                ) : item.type === 'warning' ? (
-                  <AlertTriangle className="w-4 h-4 text-molten-orange-400" />
-                ) : (
-                  <Activity className="w-4 h-4 text-tech-cyan-400" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-white text-sm">{item.title}</p>
-                <p className="text-xs text-steel-400 mt-1">{item.desc}</p>
-              </div>
-              <div className="text-right flex-shrink-0">
-                <p className="text-xs text-steel-500">{item.time}</p>
-                <p className="text-xs text-steel-400 mt-1 flex items-center gap-1 justify-end">
-                  <User className="w-3 h-3" />
-                  {item.user}
-                </p>
-              </div>
+          {notificationRecords.length === 0 ? (
+            <div className="text-center py-8 text-steel-500">
+              <Bell className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>暂无通知记录</p>
             </div>
-          ))}
+          ) : (
+            notificationRecords.slice().reverse().map((item) => (
+              <div
+                key={item.id}
+                className={`flex items-start gap-4 p-4 rounded-lg border ${
+                  item.type === 'quality'
+                    ? 'bg-alert-red-500/5 border-alert-red-500/20'
+                    : item.type === 'warning'
+                    ? 'bg-molten-orange-500/5 border-molten-orange-500/20'
+                    : 'bg-tech-cyan-500/5 border-tech-cyan-500/20'
+                } ${!item.isRead ? 'ring-1 ring-tech-cyan-500/30' : ''}`}
+              >
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+                    item.type === 'quality'
+                      ? 'bg-alert-red-500/20'
+                      : item.type === 'warning'
+                      ? 'bg-molten-orange-500/20'
+                      : 'bg-tech-cyan-500/20'
+                  }`}
+                >
+                  {item.type === 'quality' ? (
+                    <AlertOctagon className="w-4 h-4 text-alert-red-400" />
+                  ) : item.type === 'warning' ? (
+                    <AlertTriangle className="w-4 h-4 text-molten-orange-400" />
+                  ) : (
+                    <Activity className="w-4 h-4 text-tech-cyan-400" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-white text-sm">{item.title}</p>
+                    {!item.isRead && (
+                      <span className="w-2 h-2 rounded-full bg-tech-cyan-400" />
+                    )}
+                  </div>
+                  <p className="text-xs text-steel-400 mt-1">{item.message}</p>
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <p className="text-xs text-steel-500">
+                    {new Date(item.createdAt).toLocaleString('zh-CN', {
+                      month: '2-digit',
+                      day: '2-digit',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                  <p className="text-xs text-steel-400 mt-1 flex items-center gap-1 justify-end">
+                    <User className="w-3 h-3" />
+                    {item.recipientRole === 'scientist' ? '首席科学家' : item.recipientRole}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>

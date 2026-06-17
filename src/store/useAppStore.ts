@@ -9,6 +9,8 @@ import type {
   PorosityTrend,
   TaskStatus,
   User,
+  WarningRecord,
+  NotificationRecord,
 } from '../../shared/types';
 
 interface AppState {
@@ -21,6 +23,8 @@ interface AppState {
   recommendations: RecommendedParams[];
   porosityTrends: PorosityTrend[];
   currentUser: User | null;
+  warningRecords: WarningRecord[];
+  notificationRecords: NotificationRecord[];
   loading: boolean;
   error: string | null;
   activeNav: string;
@@ -34,6 +38,8 @@ interface AppState {
   setApprovalRecords: (records: ApprovalRecord[]) => void;
   setRecommendations: (recs: RecommendedParams[]) => void;
   setPorosityTrends: (trends: PorosityTrend[]) => void;
+  setWarningRecords: (records: WarningRecord[]) => void;
+  setNotificationRecords: (records: NotificationRecord[]) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
 
@@ -45,10 +51,17 @@ interface AppState {
   fetchApprovalRecords: (taskId: string) => Promise<void>;
   fetchRecommendations: (materialId: string) => Promise<void>;
   fetchPorosityTrends: (materialId?: string) => Promise<void>;
+  fetchWarningRecords: (taskId: string) => Promise<void>;
+  fetchNotifications: (role?: string) => Promise<void>;
   createTask: (task: Partial<SimulationTask>) => Promise<SimulationTask | null>;
   updateTaskStatus: (id: string, status: TaskStatus) => Promise<void>;
   approveTask: (taskId: string, level: 1 | 2, comment: string) => Promise<void>;
   rejectTask: (taskId: string, level: 1 | 2, comment: string) => Promise<void>;
+  startVerification: (taskId: string) => Promise<boolean>;
+  restartTask: (taskId: string) => Promise<boolean>;
+  reviewWarning: (taskId: string, warningId: string, approved: boolean, comment: string, adjustPower: number, adjustSpeed: number) => Promise<boolean>;
+  downloadReport: (taskId: string) => Promise<void>;
+  pushToSlicing: (taskId: string) => Promise<boolean>;
   addTemperatureData: (data: TemperatureData) => void;
 }
 
@@ -64,6 +77,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   recommendations: [],
   porosityTrends: [],
   currentUser: null,
+  warningRecords: [],
+  notificationRecords: [],
   loading: false,
   error: null,
   activeNav: 'dashboard',
@@ -77,6 +92,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setApprovalRecords: (records) => set({ approvalRecords: records }),
   setRecommendations: (recs) => set({ recommendations: recs }),
   setPorosityTrends: (trends) => set({ porosityTrends: trends }),
+  setWarningRecords: (records) => set({ warningRecords: records }),
+  setNotificationRecords: (records) => set({ notificationRecords: records }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
 
@@ -242,5 +259,136 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       temperatureData: [...state.temperatureData, data],
     }));
+  },
+
+  fetchWarningRecords: async (taskId) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}/warnings`);
+      const data = await res.json();
+      set({ warningRecords: data, loading: false });
+    } catch (err) {
+      set({ error: '获取预警记录失败', loading: false });
+    }
+  },
+
+  fetchNotifications: async (role) => {
+    set({ loading: true, error: null });
+    try {
+      const url = role ? `${API_BASE}/quality/notifications?role=${role}` : `${API_BASE}/quality/notifications`;
+      const res = await fetch(url);
+      const data = await res.json();
+      set({ notificationRecords: data, loading: false });
+    } catch (err) {
+      set({ error: '获取通知记录失败', loading: false });
+    }
+  },
+
+  startVerification: async (taskId) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error('开始校验失败');
+      const data = await res.json();
+      const tasks = get().tasks.map((t) => (t.id === taskId ? data : t));
+      set({ tasks, currentTask: data, loading: false });
+      return true;
+    } catch (err) {
+      set({ error: '开始校验失败', loading: false });
+      return false;
+    }
+  },
+
+  restartTask: async (taskId) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}/restart`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) throw new Error('重新计算失败');
+      const data = await res.json();
+      const tasks = get().tasks.map((t) => (t.id === taskId ? data : t));
+      set({ tasks, currentTask: data, temperatureData: [], warningRecords: [], loading: false });
+      return true;
+    } catch (err) {
+      set({ error: '重新计算失败', loading: false });
+      return false;
+    }
+  },
+
+  reviewWarning: async (taskId, warningId, approved, comment, adjustPower, adjustSpeed) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}/warnings/${warningId}/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved, comment, adjustPower, adjustSpeed }),
+      });
+      if (!res.ok) throw new Error('复核操作失败');
+      await get().fetchWarningRecords(taskId);
+      await get().fetchTaskDetail(taskId);
+      await get().fetchTemperatureData(taskId);
+      set({ loading: false });
+      return true;
+    } catch (err) {
+      set({ error: '复核操作失败', loading: false });
+      return false;
+    }
+  },
+
+  downloadReport: async (taskId) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}/report/download`);
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || '报告下载失败');
+      }
+      const blob = await res.blob();
+      const contentDisposition = res.headers.get('Content-Disposition');
+      let fileName = 'simulation_report.pdf';
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename\*=UTF-8''(.+)/);
+        if (match) {
+          fileName = decodeURIComponent(match[1]);
+        }
+      }
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      set({ loading: false });
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : '报告下载失败', loading: false });
+    }
+  },
+
+  pushToSlicing: async (taskId) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`${API_BASE}/tasks/${taskId}/push-to-slicing`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || '推送切片失败');
+      }
+      const data = await res.json();
+      const tasks = get().tasks.map((t) => (t.id === taskId ? data.task : t));
+      set({ tasks, currentTask: data.task, loading: false });
+      return true;
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : '推送切片失败', loading: false });
+      return false;
+    }
   },
 }));

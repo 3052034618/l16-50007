@@ -14,6 +14,9 @@ import {
   CheckCircle2,
   FileText,
   Gauge,
+  X,
+  Check,
+  Settings,
 } from 'lucide-react';
 import StatusBadge from '@/components/StatusBadge';
 import {
@@ -24,8 +27,9 @@ import {
   Tooltip,
   ResponsiveContainer,
   CartesianGrid,
+  ReferenceLine,
 } from 'recharts';
-import type { TaskStatus } from '../../shared/types';
+import type { TaskStatus, WarningRecord } from '../../shared/types';
 
 const statusSteps: { status: TaskStatus; label: string; icon: typeof Thermometer }[] = [
   { status: 'pending_verify', label: '待校验', icon: FileText },
@@ -38,27 +42,89 @@ const statusSteps: { status: TaskStatus; label: string; icon: typeof Thermometer
 const TaskDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { currentTask, fetchTaskDetail, temperatureData, fetchTemperatureData, loading } = useAppStore();
-  const [activeTab, setActiveTab] = useState<'monitor' | 'params' | 'report'>('monitor');
+  const {
+    currentTask,
+    fetchTaskDetail,
+    temperatureData,
+    fetchTemperatureData,
+    loading,
+    startVerification,
+    restartTask,
+    downloadReport,
+    warningRecords,
+    fetchWarningRecords,
+    reviewWarning,
+  } = useAppStore();
+  const [activeTab, setActiveTab] = useState<'monitor' | 'params' | 'report' | 'warnings'>('monitor');
+  const [showReviewModal, setShowReviewModal] = useState(false);
+  const [selectedWarning, setSelectedWarning] = useState<WarningRecord | null>(null);
+  const [reviewComment, setReviewComment] = useState('');
+  const [adjustPower, setAdjustPower] = useState(-20);
+  const [adjustSpeed, setAdjustSpeed] = useState(-100);
 
   useEffect(() => {
     if (id) {
       fetchTaskDetail(id);
       fetchTemperatureData(id);
+      fetchWarningRecords(id);
     }
-  }, [id, fetchTaskDetail, fetchTemperatureData]);
+  }, [id, fetchTaskDetail, fetchTemperatureData, fetchWarningRecords]);
 
   useEffect(() => {
-    if (currentTask?.status === 'computing') {
+    if (currentTask?.status === 'computing' || currentTask?.status === 'parsing' || currentTask?.status === 'analyzing') {
       const interval = setInterval(() => {
         if (id) {
           fetchTaskDetail(id);
           fetchTemperatureData(id);
+          fetchWarningRecords(id);
         }
-      }, 2000);
+      }, 1500);
       return () => clearInterval(interval);
     }
-  }, [currentTask?.status, id, fetchTaskDetail, fetchTemperatureData]);
+  }, [currentTask?.status, id, fetchTaskDetail, fetchTemperatureData, fetchWarningRecords]);
+
+  const handleStartVerification = async () => {
+    if (!id) return;
+    const success = await startVerification(id);
+    if (success) {
+      fetchTaskDetail(id);
+    }
+  };
+
+  const handleRestart = async () => {
+    if (!id) return;
+    const success = await restartTask(id);
+    if (success) {
+      fetchTaskDetail(id);
+      fetchTemperatureData(id);
+      fetchWarningRecords(id);
+    }
+  };
+
+  const handleDownloadReport = async () => {
+    if (!id) return;
+    await downloadReport(id);
+  };
+
+  const handleOpenReviewModal = (warning: WarningRecord) => {
+    setSelectedWarning(warning);
+    setReviewComment('');
+    setAdjustPower(-20);
+    setAdjustSpeed(-100);
+    setShowReviewModal(true);
+  };
+
+  const handleReview = async (approved: boolean) => {
+    if (!id || !selectedWarning) return;
+    const success = await reviewWarning(id, selectedWarning.id, approved, reviewComment, adjustPower, adjustSpeed);
+    if (success) {
+      setShowReviewModal(false);
+      setSelectedWarning(null);
+      fetchWarningRecords(id);
+      fetchTaskDetail(id);
+      fetchTemperatureData(id);
+    }
+  };
 
   const getCurrentStepIndex = () => {
     if (!currentTask) return -1;
@@ -102,19 +168,31 @@ const TaskDetail = () => {
 
         <div className="flex items-center gap-2">
           {currentTask?.status === 'pending_verify' && (
-            <button className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-tech-cyan-500 to-tech-cyan-600 text-white font-medium rounded-lg hover:from-tech-cyan-400 hover:to-tech-cyan-500 transition-all">
+            <button
+              onClick={handleStartVerification}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-tech-cyan-500 to-tech-cyan-600 text-white font-medium rounded-lg hover:from-tech-cyan-400 hover:to-tech-cyan-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               <Play className="w-4 h-4" />
               开始校验
             </button>
           )}
           {(currentTask?.status === 'failed' || currentTask?.status === 'rollback') && (
-            <button className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-molten-orange-500 to-molten-orange-600 text-white font-medium rounded-lg hover:from-molten-orange-400 hover:to-molten-orange-500 transition-all">
+            <button
+              onClick={handleRestart}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-molten-orange-500 to-molten-orange-600 text-white font-medium rounded-lg hover:from-molten-orange-400 hover:to-molten-orange-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               <RotateCcw className="w-4 h-4" />
               重新计算
             </button>
           )}
           {currentTask?.status === 'completed' && (
-            <button className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-neon-green-500 to-neon-green-600 text-white font-medium rounded-lg hover:from-neon-green-400 hover:to-neon-green-500 transition-all">
+            <button
+              onClick={handleDownloadReport}
+              disabled={loading}
+              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-neon-green-500 to-neon-green-600 text-white font-medium rounded-lg hover:from-neon-green-400 hover:to-neon-green-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
               <Download className="w-4 h-4" />
               下载报告
             </button>
@@ -181,6 +259,7 @@ const TaskDetail = () => {
       <div className="flex gap-2 border-b border-tech-cyan-900/30">
         {[
           { id: 'monitor', label: '实时监控', icon: Gauge },
+          { id: 'warnings', label: `预警记录 (${warningRecords.length})`, icon: AlertTriangle },
           { id: 'params', label: '参数配置', icon: Layers },
           { id: 'report', label: '分析报告', icon: FileText },
         ].map((tab) => {
@@ -247,6 +326,13 @@ const TaskDetail = () => {
                     strokeWidth={2}
                     fill="url(#tempGradient2)"
                     name="温度 (K)"
+                  />
+                  <ReferenceLine
+                    y={3200}
+                    stroke="#FF6B35"
+                    strokeDasharray="5 5"
+                    strokeWidth={1}
+                    label={{ value: '安全阈值 3200K', fill: '#FF6B35', fontSize: 10, position: 'insideTopRight' }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -384,7 +470,15 @@ const TaskDetail = () => {
                 </div>
               </div>
 
-              <div className="flex justify-center">
+              <div className="flex justify-center gap-4">
+                <button
+                  onClick={handleDownloadReport}
+                  disabled={loading}
+                  className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-neon-green-500 to-neon-green-600 text-white font-medium rounded-lg hover:from-neon-green-400 hover:to-neon-green-500 transition-all disabled:opacity-50"
+                >
+                  <Download className="w-5 h-5" />
+                  下载PDF报告
+                </button>
                 <Link
                   to={`/tasks/${id}/report`}
                   className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-tech-cyan-500 to-tech-cyan-600 text-white font-medium rounded-lg hover:from-tech-cyan-400 hover:to-tech-cyan-500 transition-all"
@@ -402,6 +496,166 @@ const TaskDetail = () => {
               <p className="text-steel-400">模拟尚未完成，报告生成中...</p>
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'warnings' && (
+        <div className="space-y-4">
+          {warningRecords.length === 0 ? (
+            <div className="bg-space-blue-600/50 backdrop-blur-sm border border-tech-cyan-900/30 rounded-xl p-12 text-center">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-tech-cyan-500/10 flex items-center justify-center">
+                <CheckCircle2 className="w-8 h-8 text-tech-cyan-400" />
+              </div>
+              <p className="text-steel-400">暂无预警记录</p>
+            </div>
+          ) : (
+            warningRecords.map((warning) => (
+              <div
+                key={warning.id}
+                className="bg-space-blue-600/50 backdrop-blur-sm border border-molten-orange-500/30 rounded-xl p-5"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="flex items-start gap-4">
+                    <div className="w-10 h-10 rounded-full bg-molten-orange-500/20 flex items-center justify-center flex-shrink-0">
+                      <AlertTriangle className="w-5 h-5 text-molten-orange-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-medium text-molten-orange-400">
+                          {warning.type === 'temperature' ? '温度超限预警' : '冷却速率异常预警'}
+                        </h4>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          warning.status === 'pending_review'
+                            ? 'bg-yellow-500/20 text-yellow-400'
+                            : warning.status === 'review_approved'
+                            ? 'bg-neon-green-500/20 text-neon-green-400'
+                            : warning.status === 'review_rejected'
+                            ? 'bg-red-500/20 text-red-400'
+                            : 'bg-tech-cyan-500/20 text-tech-cyan-400'
+                        }`}>
+                          {warning.status === 'pending_review'
+                            ? '待复核'
+                            : warning.status === 'review_approved'
+                            ? '复核通过'
+                            : warning.status === 'review_rejected'
+                            ? '复核驳回'
+                            : '已解决'}
+                        </span>
+                      </div>
+                      <p className="text-sm text-steel-300 mt-1">{warning.message}</p>
+                      <p className="text-xs text-steel-500 mt-2">
+                        {new Date(warning.createdAt).toLocaleString('zh-CN')}
+                      </p>
+                      {warning.parameterAdjustment && (
+                        <div className="mt-3 p-3 bg-space-blue-700/50 rounded-lg">
+                          <p className="text-xs text-steel-400 mb-2">参数调整：</p>
+                          <div className="flex gap-4 text-sm">
+                            <span className="text-tech-cyan-400">
+                              激光功率: {warning.parameterAdjustment.laserPowerAdjustment > 0 ? '+' : ''}{warning.parameterAdjustment.laserPowerAdjustment}W
+                            </span>
+                            <span className="text-molten-orange-400">
+                              扫描速度: {warning.parameterAdjustment.scanSpeedAdjustment > 0 ? '+' : ''}{warning.parameterAdjustment.scanSpeedAdjustment}mm/s
+                            </span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  {warning.status === 'pending_review' && (
+                    <button
+                      onClick={() => handleOpenReviewModal(warning)}
+                      className="px-4 py-2 text-sm bg-tech-cyan-500/20 text-tech-cyan-400 border border-tech-cyan-500/30 rounded-lg hover:bg-tech-cyan-500/30 transition-colors"
+                    >
+                      复核处理
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+
+      {showReviewModal && selectedWarning && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-space-blue-700 border border-tech-cyan-900/30 rounded-xl p-6 w-full max-w-lg">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="font-display font-semibold text-lg text-white">预警复核</h3>
+              <button
+                onClick={() => setShowReviewModal(false)}
+                className="p-1 rounded-lg hover:bg-space-blue-600 text-steel-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="p-4 bg-molten-orange-500/10 border border-molten-orange-500/30 rounded-lg">
+                <p className="text-sm text-molten-orange-400">{selectedWarning.message}</p>
+                <p className="text-xs text-steel-500 mt-2">
+                  当前值: {selectedWarning.value.toFixed(1)} | 阈值: {selectedWarning.threshold}
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm text-steel-300 mb-2">复核意见</label>
+                <textarea
+                  value={reviewComment}
+                  onChange={(e) => setReviewComment(e.target.value)}
+                  placeholder="请输入复核意见..."
+                  className="w-full px-4 py-3 bg-space-blue-800 border border-tech-cyan-900/30 rounded-lg text-white placeholder-steel-500 focus:outline-none focus:border-tech-cyan-500/50 transition-colors resize-none"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-steel-300 mb-2 flex items-center gap-2">
+                  <Settings className="w-4 h-4" />
+                  参数调整
+                </label>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-steel-400 mb-1">激光功率调整 (W)</label>
+                    <input
+                      type="number"
+                      value={adjustPower}
+                      onChange={(e) => setAdjustPower(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-space-blue-800 border border-tech-cyan-900/30 rounded-lg text-white focus:outline-none focus:border-tech-cyan-500/50 transition-colors"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-steel-400 mb-1">扫描速度调整 (mm/s)</label>
+                    <input
+                      type="number"
+                      value={adjustSpeed}
+                      onChange={(e) => setAdjustSpeed(Number(e.target.value))}
+                      className="w-full px-3 py-2 bg-space-blue-800 border border-tech-cyan-900/30 rounded-lg text-white focus:outline-none focus:border-tech-cyan-500/50 transition-colors"
+                    />
+                  </div>
+                </div>
+                <p className="text-xs text-steel-500 mt-2">
+                  调整后: 功率 {currentTask?.laserPower! + adjustPower}W, 速度 {currentTask?.scanSpeed! + adjustSpeed}mm/s
+                </p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <button
+                  onClick={() => handleReview(false)}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg hover:bg-red-500/30 transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                  驳回
+                </button>
+                <button
+                  onClick={() => handleReview(true)}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-gradient-to-r from-neon-green-500 to-neon-green-600 text-white font-medium rounded-lg hover:from-neon-green-400 hover:to-neon-green-500 transition-all"
+                >
+                  <Check className="w-4 h-4" />
+                  通过并重新模拟
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
