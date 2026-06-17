@@ -174,7 +174,8 @@ export const taskStateMachine = {
     const tempData = generateTemperatureData(hasWarning);
 
     let dataIndex = 0;
-    let warningTriggered = false;
+    let temperatureWarningTriggered = false;
+    let coolingRateWarningTriggered = false;
 
     const dataInterval = setInterval(() => {
       if (dataIndex >= tempData.length) {
@@ -195,9 +196,19 @@ export const taskStateMachine = {
 
       dataIndex++;
 
-      if (!warningTriggered && data.temp > THRESHOLDS.maxTemperature) {
-        warningTriggered = true;
+      if (!temperatureWarningTriggered && data.temp > THRESHOLDS.maxTemperature) {
+        temperatureWarningTriggered = true;
         this.triggerWarning(taskId, 'temperature', data.temp, THRESHOLDS.maxTemperature);
+      }
+
+      const absCoolingRate = Math.abs(data.coolingRate);
+      if (!coolingRateWarningTriggered && absCoolingRate > THRESHOLDS.maxCoolingRate) {
+        coolingRateWarningTriggered = true;
+        this.triggerWarning(taskId, 'cooling_rate', absCoolingRate, THRESHOLDS.maxCoolingRate);
+      }
+      if (!coolingRateWarningTriggered && absCoolingRate < THRESHOLDS.minCoolingRate && dataIndex > 30) {
+        coolingRateWarningTriggered = true;
+        this.triggerWarning(taskId, 'cooling_rate', absCoolingRate, THRESHOLDS.minCoolingRate);
       }
 
       const currentTask = dataService.getTaskById(taskId);
@@ -216,13 +227,23 @@ export const taskStateMachine = {
     const task = dataService.getTaskById(taskId);
     if (!task) return null as any;
 
+    let message: string;
+    if (type === 'temperature') {
+      message = `熔池温度 ${value.toFixed(0)}K 超过安全阈值 ${threshold}K`;
+    } else {
+      const absValue = Math.abs(value);
+      if (absValue > threshold) {
+        message = `冷却速率 ${absValue.toFixed(0)}K/s 超过最大安全阈值 ${threshold}K/s`;
+      } else {
+        message = `冷却速率 ${absValue.toFixed(0)}K/s 低于最小安全阈值 ${threshold}K/s`;
+      }
+    }
+
     const warning: WarningRecord = {
       id: `w${generateId().slice(0, 8)}`,
       taskId,
       type,
-      message: type === 'temperature'
-        ? `熔池温度 ${value.toFixed(0)}K 超过安全阈值 ${threshold}K`
-        : `冷却速率 ${Math.abs(value).toFixed(0)}K/s 超过安全范围`,
+      message,
       value,
       threshold,
       status: 'pending_review',

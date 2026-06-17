@@ -247,10 +247,13 @@ const TaskDetail = () => {
           <div className="flex-1">
             <p className="font-medium text-molten-orange-400">安全预警</p>
             <p className="text-sm text-steel-300 mt-1">
-              本次模拟共触发 {currentTask.warningCount} 次温度阈值预警，已推送工程师复核
+              本次模拟共触发 {currentTask.warningCount} 次安全阈值预警，已推送工程师复核
             </p>
           </div>
-          <button className="px-4 py-2 text-sm text-molten-orange-400 border border-molten-orange-500/30 rounded-lg hover:bg-molten-orange-500/10 transition-colors">
+          <button
+            onClick={() => setActiveTab('warnings')}
+            className="px-4 py-2 text-sm text-molten-orange-400 border border-molten-orange-500/30 rounded-lg hover:bg-molten-orange-500/10 transition-colors"
+          >
             查看详情
           </button>
         </div>

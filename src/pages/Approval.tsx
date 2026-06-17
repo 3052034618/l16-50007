@@ -11,9 +11,11 @@ import {
   Printer,
   AlertTriangle,
   Eye,
+  X,
 } from 'lucide-react';
 import StatusBadge from '@/components/StatusBadge';
 import { useNavigate } from 'react-router-dom';
+import type { WarningRecord } from '../../shared/types';
 
 const Approval = () => {
   const { tasks, fetchTasks, approveTask, rejectTask, warningRecords, fetchWarningRecords } = useAppStore();
@@ -23,6 +25,8 @@ const Approval = () => {
   const [comment, setComment] = useState('');
   const [showCommentModal, setShowCommentModal] = useState(false);
   const [approvalType, setApprovalType] = useState<'approve' | 'reject'>('approve');
+  const [showWarningModal, setShowWarningModal] = useState(false);
+  const [selectedWarningTask, setSelectedWarningTask] = useState<string | null>(null);
 
   useEffect(() => {
     fetchTasks('completed');
@@ -260,8 +264,9 @@ const Approval = () => {
                         {task.warningCount > 0 && (
                           <button
                             onClick={() => {
-                              setSelectedTask(task.id);
-                              navigate(`/tasks/${task.id}`);
+                              setSelectedWarningTask(task.id);
+                              fetchWarningRecords(task.id);
+                              setShowWarningModal(true);
                             }}
                             className="p-1.5 rounded-lg bg-molten-orange-500/10 text-molten-orange-400 hover:bg-molten-orange-500/20 transition-colors"
                             title={`${task.warningCount}条预警记录`}
@@ -317,6 +322,104 @@ const Approval = () => {
               >
                 确认提交
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showWarningModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+          <div className="bg-space-blue-600 border border-tech-cyan-900/30 rounded-xl w-full max-w-2xl mx-4 max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-tech-cyan-900/30">
+              <h3 className="font-display font-semibold text-white text-lg">
+                预警记录详情
+                <span className="ml-2 text-sm text-steel-400 font-normal">
+                  {tasks.find(t => t.id === selectedWarningTask)?.name}
+                </span>
+              </h3>
+              <button
+                onClick={() => setShowWarningModal(false)}
+                className="p-1 rounded-lg hover:bg-space-blue-700 text-steel-400 hover:text-white transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1 space-y-4">
+              {warningRecords.length === 0 ? (
+                <div className="text-center py-12">
+                  <CheckCircle2 className="w-12 h-12 mx-auto mb-3 text-tech-cyan-400" />
+                  <p className="text-steel-400">暂无预警记录</p>
+                </div>
+              ) : (
+                warningRecords.map((warning: WarningRecord) => (
+                  <div
+                    key={warning.id}
+                    className="bg-space-blue-700/50 border border-molten-orange-500/30 rounded-xl p-5"
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-10 h-10 rounded-full bg-molten-orange-500/20 flex items-center justify-center flex-shrink-0">
+                        <AlertTriangle className="w-5 h-5 text-molten-orange-400" />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <h4 className="font-medium text-molten-orange-400">
+                            {warning.type === 'temperature' ? '温度超限预警' : '冷却速率异常预警'}
+                          </h4>
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${
+                            warning.status === 'pending_review'
+                              ? 'bg-yellow-500/20 text-yellow-400'
+                              : warning.status === 'review_approved'
+                              ? 'bg-neon-green-500/20 text-neon-green-400'
+                              : warning.status === 'review_rejected'
+                              ? 'bg-red-500/20 text-red-400'
+                              : 'bg-tech-cyan-500/20 text-tech-cyan-400'
+                          }`}>
+                            {warning.status === 'pending_review'
+                              ? '待复核'
+                              : warning.status === 'review_approved'
+                              ? '复核通过'
+                              : warning.status === 'review_rejected'
+                              ? '复核驳回'
+                              : '已解决'}
+                          </span>
+                        </div>
+                        <p className="text-sm text-steel-300 mt-1">{warning.message}</p>
+                        <p className="text-xs text-steel-500 mt-2">
+                          当前值: {warning.value.toFixed(1)} | 阈值: {warning.threshold}
+                        </p>
+                        <p className="text-xs text-steel-500 mt-1">
+                          触发时间: {new Date(warning.createdAt).toLocaleString('zh-CN')}
+                        </p>
+                        {warning.reviewedAt && (
+                          <div className="mt-3 pt-3 border-t border-tech-cyan-900/30">
+                            <p className="text-xs text-steel-400 mb-1">
+                              复核人: {warning.reviewedBy} · {new Date(warning.reviewedAt).toLocaleString('zh-CN')}
+                            </p>
+                            {warning.reviewComment && (
+                              <p className="text-sm text-steel-300">
+                                复核意见: {warning.reviewComment}
+                              </p>
+                            )}
+                          </div>
+                        )}
+                        {warning.parameterAdjustment && (
+                          <div className="mt-3 p-3 bg-space-blue-800/50 rounded-lg">
+                            <p className="text-xs text-steel-400 mb-2">参数调整结果：</p>
+                            <div className="flex gap-4 text-sm">
+                              <span className="text-tech-cyan-400">
+                                激光功率: {warning.parameterAdjustment.laserPowerAdjustment > 0 ? '+' : ''}{warning.parameterAdjustment.laserPowerAdjustment}W
+                              </span>
+                              <span className="text-molten-orange-400">
+                                扫描速度: {warning.parameterAdjustment.scanSpeedAdjustment > 0 ? '+' : ''}{warning.parameterAdjustment.scanSpeedAdjustment}mm/s
+                              </span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
